@@ -8,7 +8,6 @@ import { supabase, getSessionId } from '@/lib/supabase';
 import {
   GameState,
   Side,
-  Position,
   createInitialState,
   applyTanukiMove,
   applyFoxMove,
@@ -25,33 +24,23 @@ export default function OnlineRoomPage() {
   const [playerSide, setPlayerSide] = useState<Side>(sideParam ?? 'tanuki');
   const [roomStatus, setRoomStatus] = useState<RoomStatus>('waiting');
   const [gameState, setGameState] = useState<GameState>(createInitialState());
-  const [lastMove, setLastMove] = useState<{ from: Position; to: Position } | null>(null);
+  const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const sessionId = useRef(getSessionId());
 
-  // Supabase からルームデータを取得
   const fetchRoom = useCallback(async () => {
     const { data } = await supabase.from('rooms').select('*').eq('id', roomId).single();
     if (!data) return;
-
     setRoomStatus(data.status as RoomStatus);
     if (data.game_state) {
-      try {
-        setGameState(JSON.parse(data.game_state));
-      } catch {
-        // ignore parse errors
-      }
+      try { setGameState(JSON.parse(data.game_state)); } catch { /* ignore */ }
     }
-
-    // 自分のサイドを確認
     if (data.player_tanuki === sessionId.current) setPlayerSide('tanuki');
     else if (data.player_fox === sessionId.current) setPlayerSide('fox');
   }, [roomId]);
 
-  // Supabase Realtime でルームの変更を購読
   useEffect(() => {
     fetchRoom();
-
     const channel = supabase
       .channel(`room:${roomId}`)
       .on(
@@ -59,48 +48,35 @@ export default function OnlineRoomPage() {
         { event: 'UPDATE', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` },
         (payload) => {
           const row = payload.new as {
-            status: RoomStatus;
-            game_state: string;
-            player_tanuki: string | null;
-            player_fox: string | null;
+            status: RoomStatus; game_state: string;
+            player_tanuki: string | null; player_fox: string | null;
           };
           setRoomStatus(row.status);
           if (row.game_state) {
-            try {
-              setGameState(JSON.parse(row.game_state));
-            } catch {
-              // ignore
-            }
+            try { setGameState(JSON.parse(row.game_state)); } catch { /* ignore */ }
           }
           if (row.player_tanuki === sessionId.current) setPlayerSide('tanuki');
           else if (row.player_fox === sessionId.current) setPlayerSide('fox');
         }
       )
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [roomId, fetchRoom]);
 
-  // 手を Supabase に保存
   const saveMove = useCallback(
     async (newState: GameState) => {
-      await supabase
-        .from('rooms')
-        .update({
-          game_state: JSON.stringify(newState),
-          status: newState.status !== 'playing' ? 'finished' : 'playing',
-        })
-        .eq('id', roomId);
+      await supabase.from('rooms').update({
+        game_state: JSON.stringify(newState),
+        status: newState.status !== 'playing' ? 'finished' : 'playing',
+      }).eq('id', roomId);
     },
     [roomId]
   );
 
   const handleTanukiMove = useCallback(
-    async (to: Position) => {
+    async (to: string) => {
       if (playerSide !== 'tanuki' || gameState.currentTurn !== 'tanuki') return;
-      const from = gameState.tanukiPos;
+      const from = gameState.tanukiId;
       const next = applyTanukiMove(gameState, to);
       setGameState(next);
       setLastMove({ from, to });
@@ -110,9 +86,9 @@ export default function OnlineRoomPage() {
   );
 
   const handleFoxMove = useCallback(
-    async (foxIndex: number, to: Position) => {
+    async (foxIndex: number, to: string) => {
       if (playerSide !== 'fox' || gameState.currentTurn !== 'fox') return;
-      const from = gameState.foxPositions[foxIndex];
+      const from = gameState.foxIds[foxIndex];
       const next = applyFoxMove(gameState, foxIndex, to);
       setGameState(next);
       setLastMove({ from, to });
@@ -137,7 +113,6 @@ export default function OnlineRoomPage() {
           <h1 className="text-2xl font-bold mb-2">🕐 対戦相手を待っています…</h1>
           <p className="text-gray-400 text-sm">以下のコードを友達に送ってください</p>
         </div>
-
         <div className="bg-green-950 border-2 border-green-700 rounded-2xl p-6 text-center space-y-3">
           <p className="text-gray-400 text-sm">部屋コード</p>
           <p className="text-5xl font-black font-mono tracking-widest text-green-300">{roomId}</p>
@@ -148,14 +123,12 @@ export default function OnlineRoomPage() {
             {copied ? '✅ コピーしました' : '📋 コピーする'}
           </button>
         </div>
-
         <div className="text-center space-y-1">
           <p className="text-gray-400 text-sm">あなたのサイド</p>
           <p className="text-2xl font-bold">
-            {playerSide === 'tanuki' ? '🦝 タヌキ (逃げる側)' : '🦊 キツネ×4 (追う側)'}
+            {playerSide === 'tanuki' ? '🦝 タヌキ (逃げる側)' : '🦊 キツネ×3 (追う側)'}
           </p>
         </div>
-
         <div className="animate-pulse text-gray-600 text-sm">接続を待っています…</div>
       </div>
     );
@@ -166,15 +139,12 @@ export default function OnlineRoomPage() {
       <div className="flex items-center justify-between">
         <div className="text-xs text-gray-600 font-mono">部屋: {roomId}</div>
         <TurnIndicator currentTurn={gameState.currentTurn} isMyTurn={isMyTurn} />
-        <div className="text-xs text-gray-600">
-          {isMyTurn ? (
-            <span className="text-green-400 font-bold">あなたの番</span>
-          ) : (
-            <span className="animate-pulse">相手の番…</span>
-          )}
+        <div className="text-xs">
+          {isMyTurn
+            ? <span className="text-green-400 font-bold">あなたの番</span>
+            : <span className="text-gray-500 animate-pulse">相手の番…</span>}
         </div>
       </div>
-
       <Board
         gameState={gameState}
         playerSide={playerSide}
@@ -183,7 +153,6 @@ export default function OnlineRoomPage() {
         isMyTurn={isMyTurn}
         lastMove={lastMove}
       />
-
       <GameInfo
         gameState={gameState}
         playerSide={playerSide}

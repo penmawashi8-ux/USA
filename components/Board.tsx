@@ -3,20 +3,37 @@
 import { useState, useEffect } from 'react';
 import {
   GameState,
-  Position,
   Player,
+  NODES,
+  EDGES,
+  getNode,
   getTanukiMoves,
   getFoxMoves,
-  posEqual,
 } from '@/lib/gameLogic';
+
+// SVG 表示用の実座標 (col*80, row*100 で配置)
+const COL_STEP = 85;
+const ROW_STEP = 90;
+const PAD_X = 55;
+const PAD_Y = 55;
+const SVG_W = COL_STEP * 6 + PAD_X * 2; // ~580
+const SVG_H = ROW_STEP * 2 + PAD_Y * 2; // ~280
+
+function nodeXY(id: string): { x: number; y: number } {
+  const n = getNode(id);
+  return {
+    x: PAD_X + n.col * COL_STEP,
+    y: PAD_Y + n.row * ROW_STEP,
+  };
+}
 
 interface BoardProps {
   gameState: GameState;
   playerSide: Player | 'spectator';
-  onTanukiMove?: (to: Position) => void;
-  onFoxMove?: (foxIndex: number, to: Position) => void;
+  onTanukiMove?: (toId: string) => void;
+  onFoxMove?: (foxIndex: number, toId: string) => void;
   isMyTurn: boolean;
-  lastMove?: { from: Position; to: Position } | null;
+  lastMove?: { from: string; to: string } | null;
 }
 
 export default function Board({
@@ -30,24 +47,22 @@ export default function Board({
   const [selected, setSelected] = useState<
     { type: 'tanuki' } | { type: 'fox'; index: number } | null
   >(null);
-  const [validMoves, setValidMoves] = useState<Position[]>([]);
+  const [validMoves, setValidMoves] = useState<string[]>([]);
 
-  // ゲーム状態が変わったら選択をリセット
   useEffect(() => {
     setSelected(null);
     setValidMoves([]);
   }, [gameState.currentTurn]);
 
-  const handleClick = (row: number, col: number) => {
+  const handleNodeClick = (nodeId: string) => {
     if (!isMyTurn || gameState.status !== 'playing') return;
-    const clickPos = { row, col };
 
-    // 有効な移動先をクリックした場合
-    if (selected && validMoves.some((m) => posEqual(m, clickPos))) {
+    // 有効な移動先をクリック
+    if (selected && validMoves.includes(nodeId)) {
       if (selected.type === 'tanuki' && onTanukiMove) {
-        onTanukiMove(clickPos);
+        onTanukiMove(nodeId);
       } else if (selected.type === 'fox' && onFoxMove) {
-        onFoxMove(selected.index, clickPos);
+        onFoxMove(selected.index, nodeId);
       }
       setSelected(null);
       setValidMoves([]);
@@ -56,7 +71,7 @@ export default function Board({
 
     // タヌキを選択
     if (playerSide === 'tanuki' && gameState.currentTurn === 'tanuki') {
-      if (posEqual(gameState.tanukiPos, clickPos)) {
+      if (nodeId === gameState.tanukiId) {
         setSelected({ type: 'tanuki' });
         setValidMoves(getTanukiMoves(gameState));
         return;
@@ -65,9 +80,7 @@ export default function Board({
 
     // キツネを選択
     if (playerSide === 'fox' && gameState.currentTurn === 'fox') {
-      const foxIdx = gameState.foxPositions.findIndex((f) =>
-        posEqual(f, clickPos)
-      );
+      const foxIdx = gameState.foxIds.indexOf(nodeId);
       if (foxIdx !== -1) {
         setSelected({ type: 'fox', index: foxIdx });
         setValidMoves(getFoxMoves(gameState, foxIdx));
@@ -75,113 +88,145 @@ export default function Board({
       }
     }
 
-    // 選択解除
     setSelected(null);
     setValidMoves([]);
   };
 
-  const getCellClass = (row: number, col: number): string => {
-    const isPlayableSquare = (row + col) % 2 === 1;
-    const pos = { row, col };
-    const isValidMove = validMoves.some((m) => posEqual(m, pos));
-    const isTanuki = posEqual(gameState.tanukiPos, pos);
-    const foxIdx = gameState.foxPositions.findIndex((f) => posEqual(f, pos));
-    const isFox = foxIdx !== -1;
-    const isLastFrom = lastMove && posEqual(lastMove.from, pos);
-    const isLastTo = lastMove && posEqual(lastMove.to, pos);
-    const isSelected =
-      selected &&
-      ((selected.type === 'tanuki' && isTanuki) ||
-        (selected.type === 'fox' && isFox && selected.index === foxIdx));
-
-    let base = 'relative flex items-center justify-center cursor-pointer transition-all duration-150 select-none ';
-
-    if (!isPlayableSquare) {
-      base += 'bg-amber-100 ';
-    } else {
-      base += 'bg-green-900 ';
-    }
-
-    if (isSelected) base += 'ring-4 ring-inset ring-yellow-300 ';
-    if (isValidMove && isPlayableSquare) base += 'ring-2 ring-inset ring-sky-400 ';
-    if (isLastFrom && isPlayableSquare) base += 'bg-green-800 ';
-    if (isLastTo && isPlayableSquare) base += 'bg-green-700 ';
-
-    return base;
-  };
-
-  const cells = [];
-  for (let row = 0; row < 8; row++) {
-    for (let col = 0; col < 8; col++) {
-      const pos = { row, col };
-      const isPlayableSquare = (row + col) % 2 === 1;
-      const isTanuki = posEqual(gameState.tanukiPos, pos);
-      const foxIdx = gameState.foxPositions.findIndex((f) => posEqual(f, pos));
-      const isFox = foxIdx !== -1;
-      const isValidMove = validMoves.some((m) => posEqual(m, pos));
-      const isSelected =
-        selected &&
-        ((selected.type === 'tanuki' && isTanuki) ||
-          (selected.type === 'fox' && isFox && selected.index === foxIdx));
-
-      cells.push(
-        <div
-          key={`${row}-${col}`}
-          className={getCellClass(row, col)}
-          style={{ width: '12.5%', aspectRatio: '1' }}
-          onClick={() => handleClick(row, col)}
-        >
-          {isTanuki && (
-            <span
-              className={`text-4xl sm:text-5xl leading-none z-10 transition-transform duration-200 ${
-                isSelected ? 'scale-110' : 'hover:scale-105'
-              } ${isMyTurn && playerSide === 'tanuki' && gameState.currentTurn === 'tanuki' ? 'cursor-pointer' : ''}`}
-              title="タヌキ"
-            >
-              🦝
-            </span>
-          )}
-          {isFox && (
-            <span
-              className={`text-4xl sm:text-5xl leading-none z-10 transition-transform duration-200 ${
-                isSelected ? 'scale-110' : 'hover:scale-105'
-              } ${isMyTurn && playerSide === 'fox' && gameState.currentTurn === 'fox' ? 'cursor-pointer' : ''}`}
-              title={`キツネ ${foxIdx + 1}`}
-            >
-              🦊
-            </span>
-          )}
-          {isValidMove && !isTanuki && !isFox && isPlayableSquare && (
-            <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-sky-400 opacity-70 z-10" />
-          )}
-          {isValidMove && (isTanuki || isFox) && (
-            <div className="absolute inset-0 ring-2 ring-sky-400 ring-inset opacity-70 z-20" />
-          )}
-        </div>
-      );
-    }
-  }
+  const isTanuki = (id: string) => id === gameState.tanukiId;
+  const foxIndex = (id: string) => gameState.foxIds.indexOf(id);
+  const isFox = (id: string) => foxIndex(id) !== -1;
+  const isSelected = (id: string) =>
+    selected !== null &&
+    ((selected.type === 'tanuki' && isTanuki(id)) ||
+      (selected.type === 'fox' && isFox(id) && selected.index === foxIndex(id)));
+  const isValidTarget = (id: string) => validMoves.includes(id);
+  const isLastMoveTo = (id: string) => lastMove?.to === id;
+  const isLastMoveFrom = (id: string) => lastMove?.from === id;
 
   return (
-    <div className="w-full max-w-lg mx-auto">
-      {/* 上端ラベル (キツネのゴール側) */}
-      <div className="flex justify-between px-1 mb-1 text-xs text-gray-400 font-mono">
-        {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((c) => (
-          <span key={c} className="w-[12.5%] text-center">{c}</span>
-        ))}
-      </div>
-      <div
-        className="grid border-2 border-amber-800 shadow-2xl"
-        style={{ gridTemplateColumns: 'repeat(8, 1fr)' }}
+    <div className="w-full max-w-2xl mx-auto">
+      <svg
+        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+        className="w-full h-auto"
+        style={{ touchAction: 'manipulation' }}
       >
-        {cells}
-      </div>
-      {/* 下端ラベル */}
-      <div className="flex justify-between px-1 mt-1 text-xs text-gray-400 font-mono">
-        {['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((c) => (
-          <span key={c} className="w-[12.5%] text-center">{c}</span>
-        ))}
-      </div>
+        {/* 背景 */}
+        <rect width={SVG_W} height={SVG_H} rx="12" fill="#1a2f10" />
+
+        {/* エッジ */}
+        {EDGES.map(([a, b]) => {
+          const pa = nodeXY(a);
+          const pb = nodeXY(b);
+          const isLastEdge =
+            (lastMove?.from === a && lastMove?.to === b) ||
+            (lastMove?.from === b && lastMove?.to === a);
+          return (
+            <line
+              key={`${a}-${b}`}
+              x1={pa.x}
+              y1={pa.y}
+              x2={pb.x}
+              y2={pb.y}
+              stroke={isLastEdge ? '#a3e635' : '#3d6b2e'}
+              strokeWidth={isLastEdge ? 3 : 2}
+            />
+          );
+        })}
+
+        {/* ノード */}
+        {NODES.map((node) => {
+          const { x, y } = nodeXY(node.id);
+          const hasTanuki = isTanuki(node.id);
+          const foxIdx = foxIndex(node.id);
+          const hasFox = foxIdx !== -1;
+          const isEmptyValidTarget = isValidTarget(node.id) && !hasTanuki && !hasFox;
+          const selNode = isSelected(node.id);
+          const isLast = isLastMoveTo(node.id);
+          const wasLast = isLastMoveFrom(node.id);
+
+          // ノード背景色
+          let fill = '#2d4e1e';
+          if (selNode) fill = '#78350f';
+          else if (isLast) fill = '#365314';
+          else if (wasLast) fill = '#1e3a0d';
+
+          // ノードの枠色
+          let stroke = '#4a7c35';
+          let strokeWidth = 2;
+          if (selNode) { stroke = '#fbbf24'; strokeWidth = 3; }
+          else if (isEmptyValidTarget) { stroke = '#38bdf8'; strokeWidth = 3; }
+          else if (isValidTarget(node.id)) { stroke = '#38bdf8'; strokeWidth = 2; }
+
+          const r = 24;
+
+          return (
+            <g
+              key={node.id}
+              onClick={() => handleNodeClick(node.id)}
+              style={{ cursor: 'pointer' }}
+            >
+              <circle
+                cx={x}
+                cy={y}
+                r={r}
+                fill={fill}
+                stroke={stroke}
+                strokeWidth={strokeWidth}
+              />
+
+              {/* 移動可能先の点 */}
+              {isEmptyValidTarget && (
+                <circle cx={x} cy={y} r={8} fill="#38bdf8" opacity={0.7} />
+              )}
+
+              {/* ノードラベル (駒がない時) */}
+              {!hasTanuki && !hasFox && (
+                <text
+                  x={x}
+                  y={y + 5}
+                  textAnchor="middle"
+                  fontSize="13"
+                  fill="#4a7c35"
+                  fontWeight="bold"
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
+                >
+                  {node.id}
+                </text>
+              )}
+
+              {/* タヌキ */}
+              {hasTanuki && (
+                <text
+                  x={x}
+                  y={y + 11}
+                  textAnchor="middle"
+                  fontSize="26"
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
+                >
+                  🦝
+                </text>
+              )}
+
+              {/* キツネ */}
+              {hasFox && (
+                <text
+                  x={x}
+                  y={y + 11}
+                  textAnchor="middle"
+                  fontSize="26"
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
+                >
+                  🦊
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {/* 方向ラベル */}
+        <text x={PAD_X - 38} y={PAD_Y + ROW_STEP} fill="#4a7c35" fontSize="11" textAnchor="middle">← 逃走</text>
+        <text x={SVG_W - PAD_X + 38} y={PAD_Y + ROW_STEP} fill="#e97316" fontSize="11" textAnchor="middle">スタート</text>
+      </svg>
     </div>
   );
 }

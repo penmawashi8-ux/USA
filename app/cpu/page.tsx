@@ -7,7 +7,6 @@ import {
   GameState,
   Side,
   Difficulty,
-  Position,
   createInitialState,
   applyTanukiMove,
   applyFoxMove,
@@ -16,36 +15,37 @@ import { getAIMove } from '@/lib/ai';
 
 type SetupState = { phase: 'setup' } | { phase: 'playing'; side: Side; difficulty: Difficulty };
 
-const DIFFICULTY_LABELS: Record<Difficulty, { label: string; desc: string; emoji: string }> = {
-  easy: { label: '弱い', desc: 'ランダムに動く', emoji: '🌱' },
-  medium: { label: '普通', desc: 'そこそこ考える', emoji: '🌿' },
-  hard: { label: '強い', desc: '必勝法を使う', emoji: '🌳' },
+const DIFFICULTY_INFO: Record<Difficulty, { label: string; desc: string; emoji: string }> = {
+  easy:   { label: '弱い',  desc: 'ランダムに動く', emoji: '🌱' },
+  medium: { label: '普通',  desc: 'そこそこ考える', emoji: '🌿' },
+  hard:   { label: '強い',  desc: '必勝法を使う',  emoji: '🌳' },
 };
 
 export default function CpuPage() {
   const [setup, setSetup] = useState<SetupState>({ phase: 'setup' });
   const [gameState, setGameState] = useState<GameState>(createInitialState());
-  const [lastMove, setLastMove] = useState<{ from: Position; to: Position } | null>(null);
+  const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
   const [isThinking, setIsThinking] = useState(false);
 
   const startGame = (side: Side, difficulty: Difficulty) => {
     setSetup({ phase: 'playing', side, difficulty });
     setGameState(createInitialState());
     setLastMove(null);
+    setIsThinking(false);
   };
 
   const restart = () => {
     setSetup({ phase: 'setup' });
     setLastMove(null);
+    setIsThinking(false);
   };
 
   const handleTanukiMove = useCallback(
-    (to: Position) => {
+    (to: string) => {
       if (setup.phase !== 'playing') return;
       setGameState((prev) => {
-        const from = prev.tanukiPos;
         const next = applyTanukiMove(prev, to);
-        setLastMove({ from, to });
+        setLastMove({ from: prev.tanukiId, to });
         return next;
       });
     },
@@ -53,10 +53,10 @@ export default function CpuPage() {
   );
 
   const handleFoxMove = useCallback(
-    (foxIndex: number, to: Position) => {
+    (foxIndex: number, to: string) => {
       if (setup.phase !== 'playing') return;
       setGameState((prev) => {
-        const from = prev.foxPositions[foxIndex];
+        const from = prev.foxIds[foxIndex];
         const next = applyFoxMove(prev, foxIndex, to);
         setLastMove({ from, to });
         return next;
@@ -74,16 +74,16 @@ export default function CpuPage() {
     if (isPlayerTurn) return;
 
     setIsThinking(true);
-    // わずかに遅延させてCPUが「考えている」感を出す
-    const delay = setup.difficulty === 'hard' ? 600 : 300;
+    const delay = setup.difficulty === 'hard' ? 700 : 350;
     const timer = setTimeout(() => {
       const move = getAIMove(gameState, setup.difficulty);
-      if (!move) return;
+      if (!move) { setIsThinking(false); return; }
       if (move.type === 'tanuki') {
-        setLastMove({ from: gameState.tanukiPos, to: move.to });
+        const from = gameState.tanukiId;
+        setLastMove({ from, to: move.to });
         setGameState((prev) => applyTanukiMove(prev, move.to));
       } else {
-        const from = gameState.foxPositions[move.foxIndex];
+        const from = gameState.foxIds[move.foxIndex];
         setLastMove({ from, to: move.to });
         setGameState((prev) => applyFoxMove(prev, move.foxIndex, move.to));
       }
@@ -100,10 +100,7 @@ export default function CpuPage() {
           <h1 className="text-2xl font-bold mb-1">💻 CPU 対戦</h1>
           <p className="text-gray-400 text-sm">どちら側でプレイしますか？</p>
         </div>
-
-        {/* サイド選択 */}
-        <div className="w-full max-w-sm space-y-3">
-          <h2 className="text-sm text-gray-400 font-medium">プレイするサイドを選択</h2>
+        <div className="w-full max-w-sm">
           <SideSelector onStart={startGame} />
         </div>
       </div>
@@ -118,13 +115,13 @@ export default function CpuPage() {
       <div className="flex items-center justify-between">
         <button
           onClick={restart}
-          className="text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-1"
+          className="text-sm text-gray-400 hover:text-white transition-colors"
         >
           ← 戻る
         </button>
         <TurnIndicator currentTurn={gameState.currentTurn} isMyTurn={isMyTurn} />
-        <div className="text-sm text-gray-400">
-          {isThinking && <span className="animate-pulse">🤔 考え中…</span>}
+        <div className="text-sm text-gray-500 w-16 text-right">
+          {isThinking && <span className="animate-pulse">思考中…</span>}
         </div>
       </div>
 
@@ -155,7 +152,6 @@ function SideSelector({ onStart }: { onStart: (side: Side, difficulty: Difficult
 
   return (
     <div className="space-y-5">
-      {/* サイド選択 */}
       <div className="grid grid-cols-2 gap-3">
         {(['tanuki', 'fox'] as Side[]).map((s) => (
           <button
@@ -168,20 +164,19 @@ function SideSelector({ onStart }: { onStart: (side: Side, difficulty: Difficult
             }`}
           >
             <div className="text-3xl mb-1">{s === 'tanuki' ? '🦝' : '🦊'}</div>
-            <div className="font-bold text-sm">{s === 'tanuki' ? 'タヌキ' : 'キツネ×4'}</div>
+            <div className="font-bold text-sm">{s === 'tanuki' ? 'タヌキ' : 'キツネ×3'}</div>
             <div className="text-xs text-gray-400 mt-1">
-              {s === 'tanuki' ? '逃げ切れ！' : '包囲しろ！'}
+              {s === 'tanuki' ? '逃げ切れ！' : '囲い込め！'}
             </div>
           </button>
         ))}
       </div>
 
-      {/* 難易度選択 */}
       {side && (
-        <div className="space-y-2 animate-in fade-in duration-200">
+        <div className="space-y-2">
           <h3 className="text-sm text-gray-400">CPU の強さ</h3>
           <div className="grid grid-cols-3 gap-2">
-            {(Object.entries(DIFFICULTY_LABELS) as [Difficulty, typeof DIFFICULTY_LABELS[Difficulty]][]).map(
+            {(Object.entries(DIFFICULTY_INFO) as [Difficulty, typeof DIFFICULTY_INFO[Difficulty]][]).map(
               ([d, info]) => (
                 <button
                   key={d}
@@ -202,11 +197,10 @@ function SideSelector({ onStart }: { onStart: (side: Side, difficulty: Difficult
         </div>
       )}
 
-      {/* スタートボタン */}
       {side && difficulty && (
         <button
           onClick={() => onStart(side, difficulty)}
-          className="w-full py-3 bg-green-700 hover:bg-green-600 text-white rounded-xl font-bold text-lg transition-all hover:scale-105 animate-in fade-in duration-200"
+          className="w-full py-3 bg-green-700 hover:bg-green-600 text-white rounded-xl font-bold text-lg transition-all hover:scale-105"
         >
           ゲームスタート！
         </button>

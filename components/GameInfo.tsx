@@ -30,10 +30,10 @@ export default function GameInfo({
 
   const statusMessage = () => {
     if (status === 'tanuki_wins') {
-      return playerSide === 'tanuki' ? '🎉 タヌキの勝ち！脱出成功！' : '💀 タヌキに逃げられた！キツネの負け…';
+      return playerSide === 'tanuki' ? '🎉 タヌキの勝ち！包囲網を突破！' : '😭 タヌキに逃げられた…キツネの負け';
     }
     if (status === 'fox_wins') {
-      return playerSide === 'fox' ? '🎉 キツネの勝ち！タヌキを包囲した！' : '💀 キツネに囲まれた！タヌキの負け…';
+      return playerSide === 'fox' ? '🎉 キツネの勝ち！タヌキを囲い込んだ！' : '😭 キツネに囲まれた…タヌキの負け';
     }
     if (currentTurn === 'tanuki') {
       return isMyTurn ? '🦝 あなたの番 (タヌキ)' : '🦝 タヌキの番…';
@@ -48,13 +48,12 @@ export default function GameInfo({
   };
 
   return (
-    <div className="bg-forest-deep border border-green-800 rounded-xl p-4 space-y-3">
-      {/* 対戦情報 */}
+    <div className="bg-[#1a2f10] border border-green-800 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2">
           <span className="text-gray-400">あなた:</span>
           <span className="font-bold">
-            {playerSide === 'tanuki' ? '🦝 タヌキ' : '🦊 キツネ×4'}
+            {playerSide === 'tanuki' ? '🦝 タヌキ' : '🦊 キツネ×3'}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -67,21 +66,18 @@ export default function GameInfo({
         </div>
       </div>
 
-      {/* ステータス */}
       <div className={`text-center text-lg font-bold ${statusColor()}`}>
         {statusMessage()}
       </div>
 
-      {/* ゲームルール説明 */}
       {isPlaying && (
         <div className="text-xs text-gray-500 text-center">
           {playerSide === 'tanuki'
-            ? '🦝 キツネを全員かわして上端に到達すれば勝ち！'
-            : '🦊 4匹で連携してタヌキを囲い込め！'}
+            ? '🦝 キツネ3匹の左側に抜け出せば勝ち！'
+            : '🦊 タヌキを囲んで動けなくしろ！前進のみ可能'}
         </div>
       )}
 
-      {/* ゲーム終了時のリスタートボタン */}
       {!isPlaying && onRestart && (
         <button
           onClick={onRestart}
@@ -94,7 +90,6 @@ export default function GameInfo({
   );
 }
 
-// ターン表示インジケーター
 export function TurnIndicator({ currentTurn, isMyTurn }: { currentTurn: Player; isMyTurn: boolean }) {
   return (
     <div className="flex items-center justify-center gap-3 text-sm">
